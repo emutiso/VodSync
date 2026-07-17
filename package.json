@@ -1,0 +1,30 @@
+{
+	"name": "vodsync",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Local-first synchronized review for two to six POV recordings.",
+	"author": "Enzo Mutiso",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/emutiso/VodSync.git"
+	},
+	"homepage": "https://enzo.mutiso.ca/tools/VodSync/",
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"scripts": {
+		"dev": "vite",
+		"check": "tsc --noEmit",
+		"build": "tsc --noEmit && vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"mediabunny": "1.50.8"
+	},
+	"devDependencies": {
+		"typescript": "7.0.2",
+		"vite": "8.1.4"
+	}
+}

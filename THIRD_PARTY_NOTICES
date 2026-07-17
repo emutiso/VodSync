@@ -1,0 +1,45 @@
+# Third-party notices
+
+This inventory was regenerated from a clean `npm ci` installation of the checked-in lockfile on 2026-07-16. VodSync's Apache-2.0 licence applies only to VodSync code that the project owner can license. It does not relicense the software listed here.
+
+## MediaBunny
+
+| Field | Verified value |
+| --- | --- |
+| Package | `mediabunny` |
+| Version | `1.50.8` |
+| Package author | Vanilagy |
+| Copyright notice | Copyright (c) 2026-present, Vanilagy and contributors |
+| Licence | Mozilla Public License 2.0 (`MPL-2.0`) |
+| Upstream repository | <https://github.com/Vanilagy/mediabunny> |
+| Upstream release tag | `v1.50.8`, commit `db75747533958f4a9c81d6510d02a2c9de708c04` |
+| Registry source | <https://registry.npmjs.org/mediabunny/-/mediabunny-1.50.8.tgz> |
+| npm integrity | `sha512-LgykLyQzhdpo0V2yw3UXmOpj+b4JAGdpHBwsPE6kjSt8Za0d1VllD+FV7EGHBcdV4+oHUAo+yrqbVAWxNSDCPQ==` |
+| Included npm archive | `third_party/mediabunny-1.50.8.tgz` |
+| npm archive SHA-256 | `dcc77505022b9ca0378acc7d0cdf62bd1b168f4479ce31e2e23151caea69a8ec` |
+| Included corresponding-source archive | `third_party/mediabunny-1.50.8-corresponding-source.tar.gz` |
+| Corresponding-source SHA-256 | `c5c90fb7d82c4a45223e7a1dc249834887c6a53d6239731b712d1af74956b47f` |
+| Full licence text | `third_party/MediaBunny-LICENSE` |
+| Deployed notice and downloads | <https://enzo.mutiso.ca/tools/VodSync/open-source.html> |
+| Shipped browser asset | `dist/assets/audio-sync-worker-Dux1eecS.js`; a compact MediaBunny copyright, MPL, and source pointer is retained in the generated file |
+
+VodSync imports MediaBunny's container readers and browser media APIs. The production build transforms and tree-shakes unmodified installed MediaBunny modules into the audio synchronization worker JavaScript. That transformed portion remains Covered Software under MPL-2.0; it is not covered by VodSync's Apache-2.0 licence.
+
+No MediaBunny source file is edited, patched, or replaced by this project. Build-time bundling and minification transform the unmodified package for browser delivery, but the project does not maintain a modified MediaBunny source fork.
+
+### Corresponding source availability
+
+The official npm archive at `third_party/mediabunny-1.50.8.tgz` is retained for exact build provenance. It contains the published `src/`, `dist/`, `LICENSE`, `README.md`, and package metadata, but it omits four upstream `shared/` TypeScript source files represented in its compiled modules. It is therefore not treated as complete corresponding source by itself.
+
+The corresponding-source archive at `third_party/mediabunny-1.50.8-corresponding-source.tar.gz` combines the exact npm `src/` tree with all five files from upstream commit `db75747533958f4a9c81d6510d02a2c9de708c04` under `shared/`, including `aac-misc.ts`, `ac3-misc.ts`, `bitstream.ts`, `mp3-misc.ts`, and `tsconfig.json`. It also includes the unmodified MPL-2.0 licence, package metadata, README, and TypeScript configuration. No MediaBunny source file was changed. The source is available at no charge both in this repository and beside the deployed executable.
+
+## Install-time type definitions not shipped in production
+
+MediaBunny declares the following type-definition packages as dependencies. They are present after installation but contain declarations only; no code or declaration from either package is included in VodSync's production output.
+
+| Package | Version | Licence | Copyright/contributor metadata | Source |
+| --- | --- | --- | --- | --- |
+| `@types/dom-mediacapture-transform` | `0.1.12` | MIT | Ben Wagner and DefinitelyTyped contributors | <https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/dom-mediacapture-transform> |
+| `@types/dom-webcodecs` | `0.1.13` | MIT | Ben Wagner and DefinitelyTyped contributors | <https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/dom-webcodecs> |
+
+No other production dependency is installed beyond MediaBunny and its two type-only dependencies. MediaBunny is the only third-party runtime library represented in the production site. TypeScript, Vite, and their transitive packages are development-only and are not included in the browser output.

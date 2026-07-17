@@ -1,0 +1,37 @@
+# Public repository allowlist: ignore everything unless explicitly approved below.
+# This default-deny policy covers local development state, agent files, plans,
+# diagnostics, credentials, generated output, recordings, and private fixtures.
+*
+
+# Public root files
+!/.gitignore
+!/LICENSE
+!/NOTICE
+!/README.md
+!/THIRD_PARTY_NOTICES
+!/index.html
+!/package-lock.json
+!/package.json
+!/tsconfig.json
+!/vite.config.ts
+
+# Public application source
+!/src/
+!/src/audio-sync-session.ts
+!/src/audio-sync-worker.ts
+!/src/audio-sync.ts
+!/src/main.ts
+!/src/playback.ts
+!/src/ranges.ts
+!/src/style.css
+!/src/sync-player.ts
+!/src/sync-types.ts
+!/src/timeline.ts
+!/src/visual-sequence.ts
+
+# Reviewed third-party licence and corresponding-source material
+!/third_party/
+!/third_party/MediaBunny-LICENSE
+!/third_party/mediabunny-1.50.8-corresponding-source.tar.gz
+!/third_party/mediabunny-1.50.8.tgz
+!/third_party/open-source.html
