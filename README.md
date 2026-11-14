@@ -31,10 +31,11 @@ Run the retained checks and create the production bundle with:
 ```text
 npm run check
 npm run build
+npm run verify
 npm run preview
 ```
 
-The application is configured for the canonical `/tools/VodSync/` base path. `npm run build` writes static output to `dist/`; source maps are disabled. The production build inserts a restrictive content security policy into `index.html` because GitHub Pages does not support repository-defined response headers.
+The application is configured for the canonical `/tools/VodSync/` base path. `npm run build` writes static output to `dist/`; source maps are disabled. The production build inserts a restrictive content security policy into `index.html` because GitHub Pages does not support repository-defined response headers, and stamps the hashed MediaBunny worker filename into `open-source.html`. `npm run verify` builds and then checks `dist/`: the notice names the emitted worker, the worker keeps its MPL notice, ids are unique, internal links resolve, and nothing loads from another origin. CI runs `npm run verify` on every push to `main` and every pull request.
 
 ## Use
 

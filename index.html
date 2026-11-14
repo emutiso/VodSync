@@ -8,12 +8,13 @@
       content="Synchronize two to six POV recordings locally in your browser with shared audio and visual timing."
     />
     <meta name="referrer" content="no-referrer" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0b0f14" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa" />
     <title>VodSync — Local multi-POV review</title>
   </head>
   <body>
-    <main id="app"></main>
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -33,10 +33,7 @@ const appHome = import.meta.env.BASE_URL;
 
 app.innerHTML = `
   <header class="app-header">
-    <a class="brand-lockup" href="${appHome}" aria-label="VodSync home">
-      <span class="brand-mark" aria-hidden="true">VS</span>
-      <strong>VodSync</strong>
-    </a>
+    <a class="brand-lockup" href="${appHome}" aria-label="VodSync home"><strong>VodSync</strong></a>
     <div class="header-actions">
       <a class="tools-link" href="/tools" aria-label="Back to Enzo Mutiso's tools">
         <span aria-hidden="true">←</span>
@@ -49,15 +46,11 @@ app.innerHTML = `
     </div>
   </header>
 
-  <section id="launcher-panel" class="launcher-panel" aria-labelledby="inputs-heading">
-    <div class="import-workflow">
-      <div class="import-intro">
-        <h1 id="inputs-heading">Review every angle on one timeline.</h1>
-        <p class="intro">Bring together 2–6 recordings from the same match. VodSync aligns them for one shared, local playback session.</p>
-        <p class="local-assurance"><strong>Your recordings stay on this device.</strong><span>No upload, account, or media copy.</span></p>
-        <p class="public-notices">Open source under Apache 2.0. MediaBunny remains MPL 2.0. <a href="${appHome}open-source.html">Open-source notices and corresponding source</a>.</p>
-      </div>
-      <div id="file-drop-zone" class="file-drop-zone" aria-labelledby="drop-heading">
+  <main class="app-main">
+    <section id="launcher-panel" class="launcher-panel" aria-labelledby="inputs-heading">
+      <h1 id="inputs-heading">Review every angle on one timeline.</h1>
+      <p class="intro">Bring together 2–6 recordings from the same match. VodSync aligns them for one shared, local playback session.</p>
+      <div id="file-drop-zone" class="file-drop-zone" role="group" aria-labelledby="drop-heading">
         <div class="drop-prompt">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 16.2V6.8L7.4 10.4 6 9l6-6 6 6-1.4 1.4L13 6.8v9.4h-2ZM5 21a2 2 0 0 1-2-2v-4h2v4h14v-4h2v4a2 2 0 0 1-2 2H5Z"/></svg>
           <h2 id="drop-heading">Drop your POV recordings here</h2>
@@ -73,12 +66,17 @@ app.innerHTML = `
         </div>
         <p id="status" class="launcher-status" role="status" aria-live="polite">Waiting for 2–6 files.</p>
       </div>
-    </div>
-  </section>
+      <p class="local-assurance"><strong>Your recordings stay on this device.</strong><span>No upload, account, or media copy.</span></p>
+    </section>
 
-  <section id="sync-panel" class="sync-panel" aria-label="Synchronized review" hidden>
-    <div id="sync-root"></div>
-  </section>
+    <section id="sync-panel" class="sync-panel" aria-label="Synchronized review" hidden>
+      <div id="sync-root"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p class="public-notices">Open source under Apache 2.0. MediaBunny remains MPL 2.0. <a href="${appHome}open-source.html">Open-source notices and corresponding source</a>.</p>
+  </footer>
 `;
 
 function requiredElement<T extends Element>(selector: string) {
@@ -114,6 +112,7 @@ themeToggle.addEventListener("click", () => {
 
 let syncPlayer: SyncPlayer | null = null;
 let syncOpening = false;
+let syncClosing: Promise<void> | null = null;
 let selectedRecordings: File[] = [];
 
 function selectedFiles() {
@@ -135,10 +134,11 @@ function formatBytes(bytes: number) {
 function updateReadyState() {
 	const count = selectedFiles().length;
 	const ready = count >= 2 && count <= 6;
-	const selectionLocked = count >= 6 || syncPlayer !== null || syncOpening;
+	const busy = syncPlayer !== null || syncOpening || syncClosing !== null;
+	const selectionLocked = count >= 6 || busy;
 	filePicker.disabled = selectionLocked;
 	fileDropZone.dataset.acceptingFiles = String(!selectionLocked);
-	syncOpenButton.disabled = !ready || syncPlayer !== null || syncOpening;
+	syncOpenButton.disabled = !ready || busy;
 	syncOpenButton.textContent = syncOpening ? "Starting Sync…" : "Start Sync";
 }
 
@@ -212,9 +212,12 @@ async function closeSyncPlayer(
 	message = "Synchronized player closed and resources released.",
 ) {
 	const player = syncPlayer;
-	if (!player) return;
+	if (!player) return syncClosing ?? undefined;
 	syncPlayer = null;
-	await player.destroy();
+	syncClosing = player.destroy();
+	updateReadyState();
+	await syncClosing;
+	syncClosing = null;
 	syncPanel.hidden = true;
 	delete document.documentElement.dataset.workspace;
 	updateReadyState();
@@ -222,6 +225,7 @@ async function closeSyncPlayer(
 }
 
 async function openSyncPlayer() {
+	if (syncClosing) return;
 	if (syncPlayer) {
 		await closeSyncPlayer();
 		return;
@@ -250,6 +254,8 @@ async function openSyncPlayer() {
 			block: "start",
 		});
 	} catch (error) {
+		// Closed while opening: closeSyncPlayer releases it and reports.
+		if (syncPlayer !== player) return;
 		await player.destroy();
 		syncPlayer = null;
 		syncPanel.hidden = true;
@@ -303,24 +309,20 @@ filePicker.addEventListener("change", () => {
 	filePicker.value = "";
 	void addSelectedFiles(incoming);
 });
-fileDropZone.addEventListener("dragover", (event) => {
-	if (filePicker.disabled) return;
+// The whole page accepts dropped recordings, and a drop never navigates away.
+document.addEventListener("dragover", (event) => {
 	event.preventDefault();
-	if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-	fileDropZone.dataset.dragging = "true";
+	if (event.dataTransfer)
+		event.dataTransfer.dropEffect = filePicker.disabled ? "none" : "copy";
+	if (!filePicker.disabled) fileDropZone.dataset.dragging = "true";
 });
-fileDropZone.addEventListener("dragleave", (event) => {
-	if (
-		event.relatedTarget instanceof Node &&
-		fileDropZone.contains(event.relatedTarget)
-	)
-		return;
-	delete fileDropZone.dataset.dragging;
+document.addEventListener("dragleave", (event) => {
+	if (event.relatedTarget === null) delete fileDropZone.dataset.dragging;
 });
-fileDropZone.addEventListener("drop", (event) => {
+document.addEventListener("drop", (event) => {
+	event.preventDefault();
 	delete fileDropZone.dataset.dragging;
 	if (filePicker.disabled) return;
-	event.preventDefault();
 	void addSelectedFiles([...(event.dataTransfer?.files ?? [])]);
 });
 

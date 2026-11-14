@@ -141,7 +141,12 @@ function setIconButton(
 	button.innerHTML = PLAYER_ICONS[icon];
 }
 
-function waitForSeek(element: HTMLMediaElement, targetSeconds: number) {
+function waitForSeek(
+	element: HTMLMediaElement,
+	targetSeconds: number,
+	signal: AbortSignal,
+) {
+	if (signal.aborted) return Promise.reject(signal.reason);
 	const safeTarget = Math.min(
 		Math.max(0, targetSeconds),
 		Math.max(0, element.duration - 0.001),
@@ -153,6 +158,7 @@ function waitForSeek(element: HTMLMediaElement, targetSeconds: number) {
 		window.clearTimeout(timeout);
 		element.removeEventListener("seeked", onSeeked);
 		element.removeEventListener("error", onError);
+		signal.removeEventListener("abort", onAbort);
 	};
 	const onSeeked = () => {
 		cleanup();
@@ -162,12 +168,17 @@ function waitForSeek(element: HTMLMediaElement, targetSeconds: number) {
 		cleanup();
 		reject(new Error(element.error?.message ?? "Media seek failed"));
 	};
+	const onAbort = () => {
+		cleanup();
+		reject(signal.reason);
+	};
 	const timeout = window.setTimeout(() => {
 		cleanup();
 		reject(new Error(`Media seek timed out after ${SEEK_TIMEOUT_MS} ms`));
 	}, SEEK_TIMEOUT_MS);
 	element.addEventListener("seeked", onSeeked, { once: true });
 	element.addEventListener("error", onError, { once: true });
+	signal.addEventListener("abort", onAbort, { once: true });
 	element.currentTime = safeTarget;
 	return promise;
 }
@@ -206,6 +217,8 @@ export class SyncPlayer {
 	#currentReferenceTimeUs = 0;
 	#pendingSeekTargetUs: number | null = null;
 	#seekRequestSequence = 0;
+	#playRequestSequence = 0;
+	#playPending = false;
 	#resumeAfterPendingSeek = false;
 	#playbackSpeed = 1;
 	#volume = 1;
@@ -229,6 +242,7 @@ export class SyncPlayer {
 	#alignmentComplete = false;
 	#alignmentOverallProgress = 0;
 	#destroyed = false;
+	#destroying: Promise<void> | null = null;
 	#frameCallbackIds: Array<number | null>;
 	#clockTimer = 0;
 	#correctionBusy = new Set<number>();
@@ -395,11 +409,10 @@ export class SyncPlayer {
         <button id="sync-close" class="sync-icon-button sync-session-exit" type="button"></button>
         <section id="sync-aligning" class="sync-aligning" aria-labelledby="sync-aligning-heading" aria-busy="true">
           <div class="sync-aligning-content">
-            <span class="brand-mark sync-aligning-mark" aria-hidden="true">VS</span>
             <h2 id="sync-aligning-heading">Synchronizing ${files.length} POVs</h2>
             <p id="sync-auto-progress" role="status" aria-live="polite">Preparing video 1 of ${files.length}</p>
             <progress id="sync-auto-meter" max="${files.length}" value="0"></progress>
-            <p class="sync-aligning-step">Preparing local playback · 0/${files.length}</p>
+            <p class="sync-aligning-step">0/${files.length}</p>
             <p class="sync-local-note">Processed locally. Recording bytes never leave this browser.</p>
           </div>
         </section>
@@ -486,11 +499,13 @@ export class SyncPlayer {
             <button type="button" data-nudge-us="1000000">+1 s</button>
           </div>
           <div class="sync-offset-actions">
-            <button id="sync-reset" class="secondary-action" type="button">Reset to zero</button>
-            <button id="sync-restore" class="secondary-action" type="button" disabled>Restore estimate</button>
+            <div class="sync-offset-secondary">
+              <button id="sync-reset" type="button">Reset to zero</button>
+              <button id="sync-restore" type="button" disabled>Restore estimate</button>
+              <button id="sync-reject" class="danger-action" type="button" disabled>Reject estimate</button>
+              <button id="sync-auto" type="button">Retry automatic timing</button>
+            </div>
             <button id="sync-accept" class="primary-action" type="button">Use this timing</button>
-            <button id="sync-reject" class="danger-action" type="button" disabled>Reject estimate</button>
-            <button id="sync-auto" class="secondary-action" type="button">Retry automatic timing</button>
           </div>
         </dialog>
 
@@ -907,7 +922,7 @@ export class SyncPlayer {
 		);
 		const step = this.host.querySelector<HTMLElement>(".sync-aligning-step");
 		if (step) {
-			step.textContent = `${label} · ${safeCompleted}/${safeTotal} · ${Math.round(this.#alignmentOverallProgress * 100)}% overall`;
+			step.textContent = `${safeCompleted}/${safeTotal} · ${Math.round(this.#alignmentOverallProgress * 100)}% overall`;
 		}
 	}
 
@@ -915,7 +930,8 @@ export class SyncPlayer {
 		const active = document.activeElement;
 		this.#restoreFocusAfterAlignment ||=
 			active instanceof Element && this.#elements.player.contains(active);
-		if (this.#isPlaying) this.pause("Playback paused for synchronization.");
+		if (this.#isPlaying || this.#playPending)
+			this.pause("Playback paused for synchronization.");
 		this.#alignmentComplete = false;
 		this.#elements.stage.dataset.phase = "aligning";
 		this.#elements.aligning.hidden = false;
@@ -1008,7 +1024,7 @@ export class SyncPlayer {
 
 	#togglePlayback() {
 		if (!this.#alignmentComplete) return;
-		if (this.#isPlaying) this.pause("Playback paused.");
+		if (this.#isPlaying || this.#playPending) this.pause("Playback paused.");
 		else void this.play();
 	}
 
@@ -1078,12 +1094,12 @@ export class SyncPlayer {
 		return fallback >= 0 ? fallback : null;
 	}
 
-	#referenceAtMaster() {
-		const master = this.#videos?.[this.#audioMasterIndex]?.element;
-		if (!master) return this.#currentReferenceTimeUs;
+	#referenceAt(index: number) {
+		const element = this.#videos?.[index]?.element;
+		if (!element) return this.#currentReferenceTimeUs;
 		return localToReferenceUs(
-			secondsToMicroseconds(master.currentTime),
-			this.#offsetFor(this.#audioMasterIndex),
+			secondsToMicroseconds(element.currentTime),
+			this.#offsetFor(index),
 		);
 	}
 
@@ -1412,7 +1428,11 @@ export class SyncPlayer {
 				continue;
 			}
 			operations.push(
-				waitForSeek(video.element, microsecondsToSeconds(localUs)),
+				waitForSeek(
+					video.element,
+					microsecondsToSeconds(localUs),
+					this.#prepareAbort.signal,
+				),
 			);
 		}
 		await Promise.all(operations);
@@ -1425,8 +1445,10 @@ export class SyncPlayer {
 			Math.min(maximumUs, Math.round(referenceTimeUs)),
 		);
 		const request = ++this.#seekRequestSequence;
+		this.#playRequestSequence += 1;
 		this.#pendingSeekTargetUs = target;
-		this.#resumeAfterPendingSeek ||= this.#isPlaying;
+		this.#resumeAfterPendingSeek ||= this.#isPlaying || this.#playPending;
+		this.#playPending = false;
 		this.#isPlaying = false;
 		for (const { element } of this.#videos ?? []) element.pause();
 		this.#renderTransportState();
@@ -1470,6 +1492,9 @@ export class SyncPlayer {
 	async #playCovered() {
 		const videos = this.#videos;
 		if (!videos) return false;
+		const request = ++this.#playRequestSequence;
+		const stale = () =>
+			request !== this.#playRequestSequence || this.#destroyed;
 		const covered = videos.map((_, index) => this.#isCovered(index));
 		if (!covered.some(Boolean)) {
 			this.#isPlaying = false;
@@ -1487,24 +1512,40 @@ export class SyncPlayer {
 		else this.#applyAudioRouting();
 		for (const { element } of videos)
 			element.playbackRate = this.#playbackSpeed;
-		await this.#resumeAudioOutput();
-		await Promise.all(
-			videos.map(async ({ element }, index) => {
-				if (!covered[index]) {
-					element.pause();
-					return;
-				}
-				const localUs = referenceToLocalUs(
-					this.#currentReferenceTimeUs,
-					this.#offsetFor(index),
-				);
-				const expectedSeconds = microsecondsToSeconds(localUs);
-				if (Math.abs(element.currentTime - expectedSeconds) > 0.08) {
-					await waitForSeek(element, expectedSeconds);
-				}
-				await element.play();
-			}),
-		);
+		this.#playPending = true;
+		try {
+			await this.#resumeAudioOutput();
+			if (stale()) return false;
+			await Promise.all(
+				videos.map(async ({ element }, index) => {
+					if (!covered[index]) {
+						element.pause();
+						return;
+					}
+					const localUs = referenceToLocalUs(
+						this.#currentReferenceTimeUs,
+						this.#offsetFor(index),
+					);
+					const expectedSeconds = microsecondsToSeconds(localUs);
+					if (Math.abs(element.currentTime - expectedSeconds) > 0.08) {
+						await waitForSeek(
+							element,
+							expectedSeconds,
+							this.#prepareAbort.signal,
+						);
+					}
+					if (stale()) return;
+					await element.play();
+				}),
+			);
+		} catch (error) {
+			// A pause, seek, or close that superseded this request owns the state.
+			if (stale()) return false;
+			throw error;
+		} finally {
+			if (!stale()) this.#playPending = false;
+		}
+		if (stale()) return false;
 		this.#isPlaying = true;
 		this.#renderTransportState();
 		return true;
@@ -1538,6 +1579,8 @@ export class SyncPlayer {
 
 	pause(message = "Playback paused.") {
 		this.#isPlaying = false;
+		this.#playRequestSequence += 1;
+		this.#playPending = false;
 		for (const { element } of this.#videos ?? []) {
 			element.pause();
 			element.playbackRate = this.#playbackSpeed;
@@ -1570,7 +1613,7 @@ export class SyncPlayer {
 
 	#fitFocusSidebarWidth() {
 		if (this.#elements.videos.dataset.layout !== "focused") return;
-		const { height } = this.#elements.videos.getBoundingClientRect();
+		const { height, width } = this.#elements.videos.getBoundingClientRect();
 		if (height <= 0) return;
 		const previewRows = Math.max(1, this.files.length - 1);
 		const widestPreviewAspect =
@@ -1586,8 +1629,10 @@ export class SyncPlayer {
 						: widest;
 				}, 0) || 16 / 9;
 		this.#focusSidebarUserSized = false;
+		// Fit previews to the rail height, but keep the focused POV at least
+		// 70% of the stage; manual resizing still reaches the 50% bound.
 		this.#setFocusSidebarWidth(
-			(height / previewRows) * widestPreviewAspect,
+			Math.min((height / previewRows) * widestPreviewAspect, width * 0.3),
 			false,
 		);
 	}
@@ -1693,7 +1738,7 @@ export class SyncPlayer {
 	async focusPov(index: number) {
 		if (index === this.#focusedIndex || !this.#videos || !this.files[index])
 			return;
-		const referenceTimeUs = this.#referenceAtMaster();
+		const referenceTimeUs = this.#referenceAt(this.#audioMasterIndex);
 		this.#focusedIndex = index;
 		const preferredMaster = this.#preferredAudioMaster(referenceTimeUs);
 		if (preferredMaster !== null) this.#setAudioMaster(preferredMaster);
@@ -1933,14 +1978,28 @@ export class SyncPlayer {
 		if (this.#scrubbing) return;
 		if (!videos) return;
 		let masterIndex = this.#audioMasterIndex;
-		if (!this.#isCovered(masterIndex)) {
+		if (
+			!this.#isCovered(masterIndex) ||
+			videos[masterIndex]?.element.ended
+		) {
 			const fallback = this.#preferredAudioMaster(this.#currentReferenceTimeUs);
 			if (fallback !== null) {
 				this.#setAudioMaster(fallback);
 				masterIndex = fallback;
+			} else {
+				// No audio POV covers this point: a covered silent POV drives the
+				// shared clock, and playback stops once no POV covers it.
+				const clockIndex = videos.findIndex(
+					({ element }, index) => this.#isCovered(index) && !element.ended,
+				);
+				if (clockIndex >= 0) masterIndex = clockIndex;
+				else if (this.#isPlaying) {
+					this.pause();
+					return;
+				}
 			}
 		}
-		const referenceTimeUs = this.#referenceAtMaster();
+		const referenceTimeUs = this.#referenceAt(masterIndex);
 		this.#currentReferenceTimeUs = referenceTimeUs;
 		this.#renderTimeline();
 		if (!this.#isPlaying) return;
@@ -1957,11 +2016,16 @@ export class SyncPlayer {
 			}
 			if (element.paused && !element.ended) {
 				this.#correctionBusy.add(index);
-				void waitForSeek(element, microsecondsToSeconds(expectedLocalUs))
+				void waitForSeek(
+					element,
+					microsecondsToSeconds(expectedLocalUs),
+					this.#prepareAbort.signal,
+				)
 					.then(() => {
 						if (this.#isPlaying) return element.play();
 					})
 					.catch((error) => {
+						if (this.#destroyed) return;
 						const message =
 							error instanceof Error ? error.message : String(error);
 						this.#setStatus(
@@ -2019,11 +2083,16 @@ export class SyncPlayer {
 				recentSeekCorrections.push(now);
 				this.#correctionBusy.add(index);
 
-				void waitForSeek(element, microsecondsToSeconds(expectedLocalUs))
+				void waitForSeek(
+					element,
+					microsecondsToSeconds(expectedLocalUs),
+					this.#prepareAbort.signal,
+				)
 					.then(() => {
 						if (this.#isPlaying) return element.play();
 					})
 					.catch((error) => {
+						if (this.#destroyed) return;
 						const message =
 							error instanceof Error ? error.message : String(error);
 						this.#setStatus(
@@ -2068,12 +2137,17 @@ export class SyncPlayer {
 		);
 	}
 
-	async destroy() {
-		if (this.#destroyed) return;
+	destroy() {
+		this.#destroying ??= this.#release();
+		return this.#destroying;
+	}
+
+	async #release() {
 		this.#destroyed = true;
 		this.#prepareAbort.abort();
 		this.#isPlaying = false;
 		this.#seekRequestSequence += 1;
+		this.#playRequestSequence += 1;
 		this.#pendingSeekTargetUs = null;
 		this.#resumeAfterPendingSeek = false;
 		window.clearTimeout(this.#controlsHideTimer);

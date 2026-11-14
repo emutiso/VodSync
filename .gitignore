@@ -15,6 +15,14 @@
 !/tsconfig.json
 !/vite.config.ts
 
+# Public build checks and continuous integration
+!/.github/
+!/.github/workflows/
+!/.github/workflows/verify.yml
+!/scripts/
+!/scripts/check-dist.mjs
+!/scripts/stamp-worker-notice.mjs
+
 # Public application source
 !/src/
 !/src/audio-sync-session.ts
